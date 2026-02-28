@@ -1,5 +1,8 @@
 name: Build WebDriverAgent IPA
-on:  workflow_dispatch:
+
+on:
+  workflow_dispatch:
+
 jobs:
   build:
     runs-on: macos-latest
@@ -9,7 +12,7 @@ jobs:
           git clone https://github.com/appium/WebDriverAgent.git
           cd WebDriverAgent
 
-      - name: Build WebDriverAgent (Strict ARM64)
+      - name: Build WebDriverAgent (Strict ARM64 & Ad-Hoc Sign)
         run: |
           cd WebDriverAgent
           xcodebuild build-for-testing \
@@ -33,13 +36,18 @@ jobs:
       - name: Package IPA (Strip Architectures & Preserve Symlinks)
         run: |
           cd WebDriverAgent
+          
+          # 1. Tìm đúng thư mục .app vừa build xong
           APP_PATH=$(find ./build -name "WebDriverAgentRunner-Runner.app" -type d | head -1)
           echo "Found app at: $APP_PATH"
           
+          # 2. Tạo cấu trúc Payload chuẩn của file IPA
           mkdir -p Payload
+          
+          # 3. Copy toàn bộ file sang Payload (Dùng -rp để giữ nguyên quyền thực thi Executable)
           cp -rp "$APP_PATH" Payload/
           
-          # Force extract only the arm64 architecture from the main executable (Crucial for Error 175)
+          # 4. Ép công cụ lipo gọt sạch file, chỉ giữ lại đúng chuẩn arm64 (Sửa lỗi 175)
           EXEC_PATH="Payload/WebDriverAgentRunner-Runner.app/WebDriverAgentRunner-Runner"
           if lipo -info "$EXEC_PATH" | grep -q "Non-fat"; then
             echo "Binary is already thin."
@@ -48,7 +56,7 @@ jobs:
             lipo "$EXEC_PATH" -thin arm64 -output "$EXEC_PATH"
           fi
           
-          # Compress with symlinks preserved
+          # 5. Nén lại thành IPA (Dùng -qry để giữ nguyên các link Symlinks nội bộ của XCTest)
           zip -qry WebDriverAgent-iOS15.ipa Payload/
           
           echo "IPA created successfully!"
