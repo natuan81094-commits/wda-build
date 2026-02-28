@@ -5,14 +5,16 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest
-    steps:
-      - name: Checkout WebDriverAgent
-        run: |
-          git clone https://github.com/appium/WebDriverAgent.git
-          cd WebDriverAgent
+    runs-on: macos-14
 
-      - name: Build WebDriverAgent (Strict ARM64 & Ad-Hoc Sign)
+    steps:
+      - name: Select Xcode 15
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer || sudo xcode-select -s $(ls -d /Applications/Xcode_15*.app/Contents/Developer 2>/dev/null | head -1) || true
+
+      - name: Checkout WebDriverAgent
+        run: git clone --depth 1 https://github.com/appium/WebDriverAgent.git
+
+      - name: Build WebDriverAgent
         run: |
           cd WebDriverAgent
           xcodebuild build-for-testing \
@@ -20,46 +22,24 @@ jobs:
             -scheme WebDriverAgentRunner \
             -sdk iphoneos \
             -configuration Release \
-            -derivedDataPath ./build \
-            CODE_SIGN_IDENTITY="-" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=YES \
+            -derivedDataPath ./DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM="" \
-            PROVISIONING_PROFILE="" \
-            -allowProvisioningUpdates \
             IPHONEOS_DEPLOYMENT_TARGET=15.0 \
-            ARCHS="arm64" \
-            VALID_ARCHS="arm64" \
-            ONLY_ACTIVE_ARCH=YES \
-            | tail -50
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            | tail -30
 
-      - name: Package IPA (Strip Architectures & Preserve Symlinks)
+      - name: Package IPA
         run: |
           cd WebDriverAgent
-          
-          # 1. Tìm đúng thư mục .app vừa build xong
-          APP_PATH=$(find ./build -name "WebDriverAgentRunner-Runner.app" -type d | head -1)
-          echo "Found app at: $APP_PATH"
-          
-          # 2. Tạo cấu trúc Payload chuẩn của file IPA
+          APP=$(find ./DerivedData -name "WebDriverAgentRunner-Runner.app" -type d | head -1)
+          echo "Found: $APP"
+          if [ -z "$APP" ]; then echo "FAIL: app not found"; exit 1; fi
           mkdir -p Payload
-          
-          # 3. Copy toàn bộ file sang Payload (Dùng -rp để giữ nguyên quyền thực thi Executable)
-          cp -rp "$APP_PATH" Payload/
-          
-          # 4. Ép công cụ lipo gọt sạch file, chỉ giữ lại đúng chuẩn arm64 (Sửa lỗi 175)
-          EXEC_PATH="Payload/WebDriverAgentRunner-Runner.app/WebDriverAgentRunner-Runner"
-          if lipo -info "$EXEC_PATH" | grep -q "Non-fat"; then
-            echo "Binary is already thin."
-          else
-            echo "Stripping fat binary down to arm64 only..."
-            lipo "$EXEC_PATH" -thin arm64 -output "$EXEC_PATH"
-          fi
-          
-          # 5. Nén lại thành IPA (Dùng -qry để giữ nguyên các link Symlinks nội bộ của XCTest)
-          zip -qry WebDriverAgent-iOS15.ipa Payload/
-          
-          echo "IPA created successfully!"
+          cp -rp "$APP" Payload/
+          cd Payload && zip -qry ../WebDriverAgent-iOS15.ipa . && cd ..
           ls -la WebDriverAgent-iOS15.ipa
 
       - name: Upload IPA
