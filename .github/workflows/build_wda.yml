@@ -1,0 +1,56 @@
+name: Build WebDriverAgent IPA
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout WebDriverAgent
+        run: |
+          git clone https://github.com/appium/WebDriverAgent.git
+          cd WebDriverAgent
+
+      - name: List Available Xcode versions
+        run: ls /Applications/ | grep Xcode
+
+      - name: Build WebDriverAgent
+        run: |
+          cd WebDriverAgent
+          xcodebuild build-for-testing \
+            -project WebDriverAgent.xcodeproj \
+            -scheme WebDriverAgentRunner \
+            -sdk iphoneos \
+            -configuration Release \
+            -derivedDataPath ./build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE="" \
+            -allowProvisioningUpdates \
+            IPHONEOS_DEPLOYMENT_TARGET=15.0 \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            | tail -50
+
+      - name: Package IPA
+        run: |
+          cd WebDriverAgent
+          # Find the built .app
+          APP_PATH=$(find ./build -name "WebDriverAgentRunner-Runner.app" -type d | head -1)
+          echo "Found app at: $APP_PATH"
+
+          # Create Payload directory and IPA
+          mkdir -p Payload
+          cp -r "$APP_PATH" Payload/
+          zip -r WebDriverAgent-iOS15.ipa Payload/
+          echo "IPA created!"
+          ls -la WebDriverAgent-iOS15.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: WebDriverAgent-iOS15
+          path: WebDriverAgent/WebDriverAgent-iOS15.ipa
+          retention-days: 30
