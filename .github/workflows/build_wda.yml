@@ -1,8 +1,5 @@
 name: Build WebDriverAgent IPA
-
-on:
-  workflow_dispatch:
-
+on:  workflow_dispatch:
 jobs:
   build:
     runs-on: macos-latest
@@ -12,10 +9,7 @@ jobs:
           git clone https://github.com/appium/WebDriverAgent.git
           cd WebDriverAgent
 
-      - name: List Available Xcode versions
-        run: ls /Applications/ | grep Xcode
-
-      - name: Build WebDriverAgent
+      - name: Build WebDriverAgent (Strict ARM64)
         run: |
           cd WebDriverAgent
           xcodebuild build-for-testing \
@@ -24,28 +18,40 @@ jobs:
             -sdk iphoneos \
             -configuration Release \
             -derivedDataPath ./build \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=YES \
             DEVELOPMENT_TEAM="" \
             PROVISIONING_PROFILE="" \
             -allowProvisioningUpdates \
             IPHONEOS_DEPLOYMENT_TARGET=15.0 \
-            ARCHS=arm64 \
-            ONLY_ACTIVE_ARCH=NO \
+            ARCHS="arm64" \
+            VALID_ARCHS="arm64" \
+            ONLY_ACTIVE_ARCH=YES \
             | tail -50
 
-      - name: Package IPA
+      - name: Package IPA (Strip Architectures & Preserve Symlinks)
         run: |
           cd WebDriverAgent
-          # Find the built .app
           APP_PATH=$(find ./build -name "WebDriverAgentRunner-Runner.app" -type d | head -1)
           echo "Found app at: $APP_PATH"
-
-          # Create Payload directory and IPA
+          
           mkdir -p Payload
-          cp -r "$APP_PATH" Payload/
-          zip -r WebDriverAgent-iOS15.ipa Payload/
-          echo "IPA created!"
+          cp -rp "$APP_PATH" Payload/
+          
+          # Force extract only the arm64 architecture from the main executable (Crucial for Error 175)
+          EXEC_PATH="Payload/WebDriverAgentRunner-Runner.app/WebDriverAgentRunner-Runner"
+          if lipo -info "$EXEC_PATH" | grep -q "Non-fat"; then
+            echo "Binary is already thin."
+          else
+            echo "Stripping fat binary down to arm64 only..."
+            lipo "$EXEC_PATH" -thin arm64 -output "$EXEC_PATH"
+          fi
+          
+          # Compress with symlinks preserved
+          zip -qry WebDriverAgent-iOS15.ipa Payload/
+          
+          echo "IPA created successfully!"
           ls -la WebDriverAgent-iOS15.ipa
 
       - name: Upload IPA
